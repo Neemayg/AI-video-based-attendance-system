@@ -1,0 +1,6 @@
+# Foundation dependencies for AI-Based Video Attendance System
+# Minimal requirements for initial MVP phase
+
+numpy>=1.24.0
+opencv-python>=4.8.0
+pytest>=7.0.0
