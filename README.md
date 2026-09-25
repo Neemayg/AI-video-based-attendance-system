@@ -27,7 +27,7 @@ The immediate Minimum Viable Product (MVP) is intentionally focused on core sing
 The project is developed incrementally following a clear evolutionary pipeline:
 
 ```
-Registration
+Registration (COMPLETE)
   ↓
 Recognition
   ↓
