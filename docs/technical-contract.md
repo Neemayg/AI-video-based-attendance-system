@@ -10,8 +10,9 @@ To ensure compatibility across developer modules:
 
 * **Face Embedding Model**: Standard normalized 512-dimensional embedding vector (or 128-D depending on PyTorch/FaceNet/dlib model selected).
 * **Vector Type**: `numpy.ndarray` with shape `(512,)` (or `(128,)`) and `dtype=np.float32`.
-* **Normalization**: All embedding vectors MUST be L2-normalized (`vector / np.linalg.norm(vector)`) prior to comparison.
-* **Distance Metric**: **Cosine Similarity** (Dot product of L2-normalized vectors), yielding a score range of `[0.0, 1.0]`.
+* **Normalization**: The recognition matcher accepts finite, non-zero embedding vectors and computes cosine similarity internally as the dot product divided by the product of the vector norms. This includes normalization in the cosine calculation.
+* **Distance Metric**: **Cosine Similarity** (dot product of L2-normalized vectors), yielding a score range of `[-1.0, 1.0]`.
+* **Recognition Threshold**: Thresholds MUST be finite values in the range `[-1.0, 1.0]`.
 
 ---
 
@@ -58,7 +59,7 @@ def recognize_face(
         dict: {
             "student_id": "11024010004" (or None),
             "name": "Neemay Gupta" (or "Unknown"),
-            "score": 0.87, # Cosine similarity score [0.0 - 1.0]
+            "score": 0.87, # Cosine similarity score [-1.0 - 1.0]
             "status": "VERIFIED" # "VERIFIED" if score >= threshold else "UNKNOWN"
         }
     """
