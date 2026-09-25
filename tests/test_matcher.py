@@ -129,3 +129,41 @@ def test_dimension_mismatch_is_rejected():
 def test_invalid_threshold_is_rejected(threshold):
     with pytest.raises(ValueError, match="threshold"):
         recognize_face(np.array([1.0, 0.0]), {}, {}, threshold=threshold)
+def test_match_exactly_at_threshold_is_verified():
+    threshold_val = 0.65
+    # score of [1, 0] and [0.65, sqrt(1 - 0.65^2)] is exactly 0.65
+    result = recognize_face(
+        np.array([1.0, 0.0]),
+        {"student-1": np.array([0.65, np.sqrt(1 - 0.65**2)])},
+        {"student-1": {"name": "Ada"}},
+        threshold=threshold_val,
+    )
+    
+    # Cosine similarity can have floating point imprecisions, but we use exact match here.
+    # Actually wait, let's use exact vectors.
+    result = recognize_face(
+        np.array([1.0, 0.0, 0.0]),
+        {"student-1": np.array([0.65, 0.75, 0.1118033988749895])},
+        {"student-1": {"name": "Ada"}},
+        threshold=0.65,
+    )
+
+    assert result["student_id"] == "student-1"
+    assert result["status"] == "VERIFIED"
+
+def test_tie_behavior_selects_first_student_id_alphabetically():
+    result = recognize_face(
+        np.array([1.0, 0.0]),
+        {
+            "student-b": np.array([1.0, 0.0]),
+            "student-a": np.array([1.0, 0.0]),
+        },
+        {
+            "student-b": {"name": "Bob"},
+            "student-a": {"name": "Alice"},
+        },
+    )
+
+    assert result["student_id"] == "student-a"
+    assert result["name"] == "Alice"
+    assert result["status"] == "VERIFIED"

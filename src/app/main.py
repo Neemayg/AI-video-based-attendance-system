@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from src.detection.detector import DetectedFace, detect_face, initialize_detector
+from src.detection.detector import DetectedFace, detect_faces, initialize_detector
 from src.recognition.gallery import load_recognition_gallery
 from src.recognition.matcher import recognize_face
 from src.recognition.query import generate_query_embedding
@@ -22,13 +22,19 @@ def initialize_models() -> None:
 def _draw_result(frame: np.ndarray, detected: DetectedFace, result: dict) -> None:
     """Draw the detection box and recognition result on a camera frame."""
     x1, y1, x2, y2 = [int(value) for value in detected.box]
-    color = (0, 255, 0) if result["status"] == "VERIFIED" else (0, 0, 255)
+    
+    if detected.error_status is not None:
+        color = (0, 165, 255) # Orange for warning
+        label = f"Skipped: {detected.error_status}"
+    else:
+        color = (0, 255, 0) if result["status"] == "VERIFIED" else (0, 0, 255)
+        student_id = result["student_id"] or "-"
+        label = (
+            f"{result['name']} | ID: {student_id} | "
+            f"Score: {result['score']:.2f} | {result['status']}"
+        )
+        
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-    student_id = result["student_id"] or "-"
-    label = (
-        f"{result['name']} | ID: {student_id} | "
-        f"Score: {result['score']:.2f} | {result['status']}"
-    )
     cv2.putText(
         frame,
         label,
@@ -60,8 +66,8 @@ def run(
             if not success:
                 raise RuntimeError("Could not read a frame from the camera")
 
-            detected = detect_face(frame)
-            if detected is None:
+            detected_list = detect_faces(frame)
+            if not detected_list:
                 cv2.putText(
                     frame,
                     "No face detected",
@@ -72,14 +78,20 @@ def run(
                     2,
                 )
             else:
-                query_embedding = generate_query_embedding(detected.face_tensor)
-                result = recognize_face(
-                    query_embedding,
-                    gallery_embeddings,
-                    gallery_metadata,
-                    threshold,
-                )
-                _draw_result(frame, detected, result)
+                for detected in detected_list:
+                    if detected.error_status is not None:
+                        # Skip embedding and matching
+                        _draw_result(frame, detected, {})
+                        continue
+                        
+                    query_embedding = generate_query_embedding(detected.face_tensor)
+                    result = recognize_face(
+                        query_embedding,
+                        gallery_embeddings,
+                        gallery_metadata,
+                        threshold,
+                    )
+                    _draw_result(frame, detected, result)
 
             cv2.imshow(config.WINDOW_NAME, frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):

@@ -109,3 +109,15 @@ def test_invalid_gallery_records_raise_clear_errors(
 
     with pytest.raises((ValueError, FileNotFoundError), match=error_match):
         load_recognition_gallery()
+def test_invalid_centroid_shape_raises_error(isolated_gallery):
+    centroid = np.zeros(256, dtype=np.float32)  # Wrong shape (256 instead of 512)
+    student_dir = isolated_gallery / "102"
+    student_dir.mkdir()
+    np.save(student_dir / "centroid.npy", centroid)
+    write_gallery(
+        isolated_gallery,
+        {"102": {"name": "Bob", "centroid_file": "102/centroid.npy"}},
+    )
+
+    with pytest.raises(ValueError, match="must contain a 512-D vector"):
+        load_recognition_gallery()

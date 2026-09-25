@@ -81,7 +81,7 @@ def test_camera_successfully_releases_resources_and_displays_unknown(monkeypatch
     monkeypatch.setattr(main, "cv2", fake_cv2)
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
-    monkeypatch.setattr(main, "detect_face", lambda current_frame: detected)
+    monkeypatch.setattr(main, "detect_faces", lambda current_frame: [detected])
     monkeypatch.setattr(main, "generate_query_embedding", lambda tensor: np.ones(512))
     monkeypatch.setattr(main, "recognize_face", lambda *args: unknown)
 
@@ -93,6 +93,52 @@ def test_camera_successfully_releases_resources_and_displays_unknown(monkeypatch
     assert any("Unknown" in label and "UNKNOWN" in label for label in fake_cv2.labels)
 
 
+def test_camera_supports_multiple_independent_faces(monkeypatch):
+    frame = np.zeros((40, 40, 3), dtype=np.uint8)
+    capture = FakeCapture(frames=[frame])
+    fake_cv2 = FakeCV2(capture)
+    
+    # Face 1: valid, verified
+    detected1 = DetectedFace(np.array([1, 1, 20, 20]), object())
+    verified_result = {
+        "student_id": "100",
+        "name": "Alice",
+        "score": 0.9,
+        "status": "VERIFIED",
+    }
+    
+    # Face 2: valid, unknown
+    detected2 = DetectedFace(np.array([30, 30, 50, 50]), object())
+    unknown_result = {
+        "student_id": None,
+        "name": "Unknown",
+        "score": 0.2,
+        "status": "UNKNOWN",
+    }
+    
+    # Face 3: invalid, too small
+    detected3 = DetectedFace(np.array([60, 60, 65, 65]), None, "FACE_TOO_SMALL")
+    
+    def fake_recognize_face(query_embedding, *args, **kwargs):
+        if query_embedding is detected1.face_tensor: # match by identity using mock hack
+            return verified_result
+        return unknown_result
+
+    monkeypatch.setattr(main, "cv2", fake_cv2)
+    monkeypatch.setattr(main, "initialize_models", lambda: None)
+    monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
+    monkeypatch.setattr(main, "detect_faces", lambda current_frame: [detected1, detected2, detected3])
+    monkeypatch.setattr(main, "generate_query_embedding", lambda tensor: tensor)
+    monkeypatch.setattr(main, "recognize_face", fake_recognize_face)
+
+    main.run()
+
+    # Three labels should be drawn independently
+    assert any("Alice" in label and "VERIFIED" in label for label in fake_cv2.labels)
+    assert any("Unknown" in label and "UNKNOWN" in label for label in fake_cv2.labels)
+    assert any("Skipped: FACE_TOO_SMALL" in label for label in fake_cv2.labels)
+
+
 def test_camera_releases_resources_on_processing_error(monkeypatch):
     frame = np.zeros((40, 40, 3), dtype=np.uint8)
     capture = FakeCapture(frames=[frame])
@@ -100,7 +146,7 @@ def test_camera_releases_resources_on_processing_error(monkeypatch):
     monkeypatch.setattr(main, "cv2", fake_cv2)
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
-    monkeypatch.setattr(main, "detect_face", lambda frame: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(main, "detect_faces", lambda frame: (_ for _ in ()).throw(RuntimeError("boom")))
 
     with pytest.raises(RuntimeError, match="boom"):
         main.run()

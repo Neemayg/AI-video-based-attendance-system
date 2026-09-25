@@ -49,7 +49,7 @@ def recognize_face(
     best_student_id = None
     best_score = -np.inf
 
-    for student_id, gallery_embedding in gallery_embeddings.items():
+    for student_id, gallery_embedding in sorted(gallery_embeddings.items()):
         gallery_vector = _validate_embedding(
             gallery_embedding, f"gallery embedding for {student_id}"
         )
