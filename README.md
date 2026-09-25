@@ -81,6 +81,7 @@ Dashboard
 │
 └── docs/                     # Project documentation
     ├── architecture.md       # Conceptual current & future architecture
+    ├── technical-contract.md # Model, embedding, and module interface specifications
     ├── development-roadmap.md# Phase-by-phase development plan
     └── testing.md            # Test matrix and guidelines
 ```
