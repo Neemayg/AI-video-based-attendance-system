@@ -1,11 +1,14 @@
-"""Single-face detection and alignment boundary for the camera runtime."""
+"""Face detection and alignment boundary for the camera runtime."""
 
+import os
 from dataclasses import dataclass
 
 import numpy as np
 import torch
 
 from src.registration.preprocessing import preprocess_face_with_box, extract_faces
+
+MAX_FACES_PER_FRAME = int(os.getenv("MAX_FACES", "3"))
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,11 @@ def detect_face(frame: np.ndarray) -> DetectedFace | None:
 def detect_faces(frame: np.ndarray) -> list[DetectedFace]:
     """Detect all faces in the frame and preserve error statuses for unviable constraints."""
     faces = extract_faces(frame)
+    # --- Performance: Limit the number of faces to process per frame ---
+    # On CPU, processing too many faces can cause severe latency; this ensures a predictable load.
+    if len(faces) > MAX_FACES_PER_FRAME:
+        faces = faces[:MAX_FACES_PER_FRAME]
+    # --- End Cap ---
     detected = []
     for box, tensor, error_status in faces:
         detected.append(DetectedFace(box=box, face_tensor=tensor, error_status=error_status))

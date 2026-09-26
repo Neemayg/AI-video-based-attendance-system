@@ -139,3 +139,22 @@ def test_invalid_student_id_name(mock_input, isolated_storage):
     gallery = storage.load_gallery()
     assert len(gallery) == 0
     assert not os.path.exists(os.path.join(isolated_storage, "104"))
+
+
+def test_angle_prompts_contain_multiple_distinct_angles():
+    """Verify the registration angle prompts are configured correctly."""
+    labels = [prompt.label for prompt in config.ANGLE_PROMPTS]
+
+    assert len(config.ANGLE_PROMPTS) >= 3
+    assert "Frontal" in labels
+    assert any("Left" in label for label in labels)
+    assert any("Right" in label for label in labels)
+
+    for prompt in config.ANGLE_PROMPTS:
+        assert isinstance(prompt.label, str) and len(prompt.label) > 0
+        assert isinstance(prompt.instruction, str) and len(prompt.instruction) > 10
+
+
+def test_sample_target_constant():
+    """Verify the default sample target is 10."""
+    assert config.SAMPLE_TARGET == 10

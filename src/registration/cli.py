@@ -31,13 +31,15 @@ def main():
             print("Registration cancelled.")
             return
 
-    # Pre-load models
-    print("\nLoading models... (this might take a moment)")
-    from .preprocessing import get_mtcnn
-    get_mtcnn()
-    embedding.get_resnet()
-    
     try:
+        print("\nLoading models... (this might take a moment)")
+        from .preprocessing import get_mtcnn
+        get_mtcnn()
+        embedding.get_resnet()
+
+        print("\n=== Registration Started ===")
+        print("Ensure the camera is ready and the room is well-lit.")
+
         tensors = capture.capture_face_samples()
         if len(tensors) == 0:
             print("No samples captured. Registration aborted.")

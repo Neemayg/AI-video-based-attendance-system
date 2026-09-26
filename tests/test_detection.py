@@ -55,3 +55,28 @@ def test_side_pose_is_rejected_and_frontal_pose_is_allowed():
 
     assert preprocessing.validate_frontal_pose(frontal_landmarks)
     assert not preprocessing.validate_frontal_pose(side_landmarks)
+
+
+def test_detect_faces_limits_maximum_faces(monkeypatch):
+    box_a = np.array([1.0, 2.0, 30.0, 40.0])
+    tensor_a = torch.zeros(3, 160, 160)
+    box_b = np.array([40.0, 40.0, 60.0, 60.0])
+    tensor_b = torch.zeros(3, 160, 160)
+    box_c = np.array([60.0, 60.0, 80.0, 80.0])
+    tensor_c = torch.zeros(3, 160, 160)
+
+    def fake_extract_faces(frame):
+        return [
+            (box_a, tensor_a, None),
+            (box_b, tensor_b, None),
+            (box_c, tensor_c, None),
+        ]
+
+    monkeypatch.setattr(detector, "extract_faces", fake_extract_faces)
+    monkeypatch.setattr(detector, "MAX_FACES_PER_FRAME", 2)
+
+    results = detector.detect_faces(np.zeros((50, 50, 3), dtype=np.uint8))
+
+    assert len(results) == 2
+    np.testing.assert_array_equal(results[0].box, box_a)
+    np.testing.assert_array_equal(results[1].box, box_b)
