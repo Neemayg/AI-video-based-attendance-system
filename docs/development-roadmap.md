@@ -16,13 +16,13 @@ This document outlines the multi-phase development plan for the AI-Based Video A
 ---
 
 ## PHASE 1 — Face Registration
-- **Status**: NOT STARTED
+- **Status**: COMPLETE
 - **Objective**: Register approximately 5 students and save their embeddings.
 - **Inputs**: Student ID, Student Name, face sample images.
 - **Processing**: Face embedding extraction and persistent gallery saving.
 - **Outputs**: Saved embedding files under `data/embeddings/`.
-- **Test Cases**: TBD
-- **Known Issues**: TBD
+- **Test Cases**: Functional tests and integrity tests passing.
+- **Known Issues**: None.
 
 ---
 
