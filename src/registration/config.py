@@ -25,7 +25,7 @@ BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "50.0"))
 FRONTAL_EYE_SLOPE_RATIO = 0.25
 FRONTAL_FEATURE_RATIO_MIN = 0.0
 FRONTAL_FEATURE_RATIO_MAX = 1.0
-MODEL_DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+MODEL_DEVICE = 'cuda' if torch.cuda.is_available() else ('mps' if hasattr(torch.backends, "mps") and torch.backends.mps.is_available() else 'cpu')
 
 # Storage paths
 STORAGE_BASE_DIR = os.path.join('data', 'embeddings')
