@@ -47,10 +47,100 @@ def validate_quality(frame: np.ndarray, box: np.ndarray) -> bool:
         
     return True
 
-def preprocess_face(frame: np.ndarray) -> Optional[torch.Tensor]:
+
+def validate_frontal_pose(landmarks: np.ndarray) -> bool:
+    """Reject strong side poses using MTCNN eye, nose, and mouth landmarks."""
+    if landmarks is None or np.asarray(landmarks).shape != (5, 2):
+        return False
+
+    left_eye, right_eye, nose, mouth_left, mouth_right = np.asarray(landmarks)
+    eye_vector = right_eye - left_eye
+    eye_distance = np.linalg.norm(eye_vector)
+    if eye_distance == 0 or eye_vector[0] <= 0:
+        return False
+
+    if abs(eye_vector[1]) / eye_distance > config.FRONTAL_EYE_SLOPE_RATIO:
+        return False
+
+    feature_ratios = [
+        (nose[0] - left_eye[0]) / eye_vector[0],
+        ((mouth_left[0] + mouth_right[0]) / 2 - left_eye[0]) / eye_vector[0],
+    ]
+    return all(
+        config.FRONTAL_FEATURE_RATIO_MIN <= ratio <= config.FRONTAL_FEATURE_RATIO_MAX
+        for ratio in feature_ratios
+    )
+
+def validate_quality_status(frame: np.ndarray, box: np.ndarray) -> str | None:
+    """Check face quality and return a specific status string if invalid."""
+    x1, y1, x2, y2 = box
+    width = x2 - x1
+    height = y2 - y1
+    if width < config.MIN_FACE_WIDTH or height < config.MIN_FACE_HEIGHT:
+        return "FACE_TOO_SMALL"
+        
+    face_crop = frame[int(max(0, y1)):int(y2), int(max(0, x1)):int(x2)]
+    if face_crop.size == 0:
+        return "INVALID_CROP"
+        
+    gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+    variance = cv2.Laplacian(gray, cv2.CV_64F).var()
+    
+    if variance < config.BLUR_THRESHOLD:
+        return "LOW_QUALITY"
+        
+    return None
+
+def extract_faces(frame: np.ndarray) -> list[Tuple[np.ndarray, Optional[torch.Tensor], Optional[str]]]:
+    """
+    Detect all faces, validate quality, and extract valid tensors safely.
+    Returns: list of (box, face_tensor_if_valid, error_status_string_if_invalid)
+    """
+    mtcnn = get_mtcnn()
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    
+    boxes, probs, landmarks = mtcnn.detect(rgb_frame, landmarks=True)
+    if boxes is None:
+        return []
+        
+    results = []
+    # mtcnn.detect might return lists or numpy arrays; if single face, could it be 1D?
+    # Actually, it guarantees shape (N, 4) if faces are found
+    for i in range(len(boxes)):
+        box = boxes[i]
+        prob = probs[i] if probs is not None else 0.0
+        
+        if prob < 0.90:
+            results.append((box, None, "LOW_CONFIDENCE"))
+            continue
+            
+        lm = landmarks[i] if landmarks is not None else None
+        if not validate_frontal_pose(lm):
+            results.append((box, None, "POOR_POSE"))
+            continue
+            
+        quality_status = validate_quality_status(frame, box)
+        if quality_status is not None:
+            results.append((box, None, quality_status))
+            continue
+            
+        # Extract requires (N,4); passing shape (1,4) extracts correctly without keep_all issues
+        face_tensor = mtcnn.extract(rgb_frame, box.reshape(1, 4), save_path=None)
+        if face_tensor is not None:
+            if face_tensor.ndim == 4:
+                face_tensor = face_tensor[0]
+            results.append((box, face_tensor, None))
+        else:
+            results.append((box, None, "EXTRACTION_FAILED"))
+            
+    return results
+
+def preprocess_face_with_box(
+    frame: np.ndarray,
+) -> Optional[Tuple[np.ndarray, torch.Tensor]]:
     """
     Detects and aligns a single face from a BGR OpenCV frame.
-    Returns the preprocessed face tensor (160x160) or None if validation fails.
+    Returns its box and preprocessed face tensor or None if validation fails.
     """
     mtcnn = get_mtcnn()
     
@@ -58,7 +148,7 @@ def preprocess_face(frame: np.ndarray) -> Optional[torch.Tensor]:
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     
     # Detect faces
-    boxes, probs = mtcnn.detect(rgb_frame)
+    boxes, probs, landmarks = mtcnn.detect(rgb_frame, landmarks=True)
     
     if boxes is None or len(boxes) != 1:
         return None  # Reject 0 or >1 faces
@@ -68,21 +158,29 @@ def preprocess_face(frame: np.ndarray) -> Optional[torch.Tensor]:
     
     if prob < 0.90:  # Confident detection
         return None
+
+    if not validate_frontal_pose(landmarks[0]):
+        return None
         
     if not validate_quality(frame, box):
         return None
         
-    # Extract the aligned and preprocessed face tensor
-    # MTCNN returns a tensor of shape [3, 160, 160], already normalized
-    face_tensor = mtcnn(rgb_frame)
+    # Reuse the detected box so MTCNN does not detect the same frame twice.
+    face_tensor = mtcnn.extract(rgb_frame, boxes, save_path=None)
     
-    # Since we are sure there is 1 face, mtcnn() will return a tensor for that face
+    # Since we are sure there is 1 face, extract returns one aligned tensor.
     if face_tensor is None:
         return None
         
-    if face_tensor.ndim == 4: # batch of faces
+    if face_tensor.ndim == 4:  # batch of faces
         if face_tensor.size(0) != 1:
             return None
         face_tensor = face_tensor[0]
         
-    return face_tensor
+    return box, face_tensor
+
+
+def preprocess_face(frame: np.ndarray) -> Optional[torch.Tensor]:
+    """Return one aligned face tensor while preserving the capture API."""
+    result = preprocess_face_with_box(frame)
+    return result[1] if result is not None else None
