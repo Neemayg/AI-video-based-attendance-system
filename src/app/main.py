@@ -2,13 +2,25 @@
 
 import cv2
 import numpy as np
+from dataclasses import dataclass
 
 from src.detection.detector import DetectedFace, detect_faces, initialize_detector
+from src.detection.person import PersonTracker, associate_face_to_person, detect_people
 from src.recognition.gallery import load_recognition_gallery
 from src.recognition.matcher import recognize_face
 from src.recognition.query import generate_query_embedding
 
 from . import config
+
+
+@dataclass
+class _FaceTrack:
+    """Internal face continuity state; uncertain tracks are never rendered."""
+
+    detected: DetectedFace
+    result: dict
+    missed_frames: int = 0
+    visible: bool = True
 
 
 def initialize_models() -> None:
@@ -44,6 +56,18 @@ def _draw_result(frame: np.ndarray, detected: DetectedFace, result: dict) -> Non
         color,
         2,
     )
+
+
+def _draw_person_track(frame: np.ndarray, track) -> None:
+    """Draw a visible body track, labeling it only after face verification."""
+    x1, y1, x2, y2 = [int(value) for value in track.box]
+    color = (255, 255, 0)
+    label = f"Person #{track.track_id}"
+    if track.identity and track.identity.get("status") == "VERIFIED":
+        label = f"Person #{track.track_id}: {track.identity['name']}"
+        color = (0, 255, 0)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
+    cv2.putText(frame, label, (x1, max(25, y1 - 25)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
 
 def _track_cached_faces(
@@ -130,6 +154,55 @@ def _track_cached_faces(
     return tracked
 
 
+def _box_overlap(left: np.ndarray, right: np.ndarray) -> float:
+    """Return intersection-over-union for two finite face boxes."""
+    left = np.asarray(left, dtype=float)
+    right = np.asarray(right, dtype=float)
+    if (
+        left.shape != (4,)
+        or right.shape != (4,)
+        or not np.all(np.isfinite(left))
+        or not np.all(np.isfinite(right))
+    ):
+        return 0.0
+    intersection = np.maximum(
+        0.0,
+        np.minimum(left[2:], right[2:]) - np.maximum(left[:2], right[:2]),
+    )
+    intersection_area = float(intersection[0] * intersection[1])
+    left_area = max(0.0, float(left[2] - left[0])) * max(0.0, float(left[3] - left[1]))
+    right_area = max(0.0, float(right[2] - right[0])) * max(0.0, float(right[3] - right[1]))
+    union = left_area + right_area - intersection_area
+    return intersection_area / union if union > 0 else 0.0
+
+
+def _find_matching_track(box: np.ndarray, tracks: list[_FaceTrack]) -> _FaceTrack | None:
+    """Find the nearest recent track for an occluded/error face detection."""
+    candidates = [track for track in tracks if track.missed_frames <= config.TRACK_GRACE_FRAMES]
+    if not candidates:
+        return None
+    best = max(candidates, key=lambda track: _box_overlap(box, track.detected.box))
+    if _box_overlap(box, best.detected.box) > 0:
+        return best
+
+    box = np.asarray(box, dtype=float)
+    if box.shape != (4,) or not np.all(np.isfinite(box)):
+        return None
+    center = (box[:2] + box[2:]) / 2
+    distances = []
+    for track in candidates:
+        old_box = np.asarray(track.detected.box, dtype=float)
+        if old_box.shape != (4,) or not np.all(np.isfinite(old_box)):
+            continue
+        old_center = (old_box[:2] + old_box[2:]) / 2
+        size = max(old_box[2] - old_box[0], old_box[3] - old_box[1], 1.0)
+        distances.append((float(np.linalg.norm(center - old_center)), size, track))
+    if not distances:
+        return None
+    distance, size, track = min(distances, key=lambda item: item[0])
+    return track if distance <= size * 1.5 else None
+
+
 def run(
     camera_index: int = config.CAMERA_INDEX,
     threshold: float = config.RECOGNITION_THRESHOLD,
@@ -153,7 +226,9 @@ def run(
         # flow updates their boxes. A full detection cycle re-establishes the
         # independent face tracks and recognition results.
         frame_counter = 0
-        cached_detected = []  # List of (DetectedFace, recognized_result_or_None)
+        tracks: list[_FaceTrack] = []
+        person_tracker = PersonTracker()
+        person_tracks = []
         previous_frame = None
 
         while True:
@@ -164,8 +239,11 @@ def run(
             should_detect = frame_counter % detection_cycle_frames == 0
 
             if should_detect:
+                person_tracks = person_tracker.update(
+                    detect_people(frame, config.PERSON_DETECTION_MIN_CONFIDENCE)
+                )
                 detected_list = detect_faces(frame)
-                cached_detected = []
+                next_tracks = []
                 if not detected_list:
                     cv2.putText(
                         frame,
@@ -176,11 +254,18 @@ def run(
                         (0, 0, 255),
                         2,
                     )
+                    for track in tracks:
+                        track.missed_frames += 1
+                        track.visible = False
+                        if track.missed_frames <= config.TRACK_GRACE_FRAMES:
+                            next_tracks.append(track)
                 else:
                     for detected in detected_list:
                         if detected.error_status is not None:
                             _draw_result(frame, detected, {})
-                            cached_detected.append((detected, {}))
+                            previous_track = _find_matching_track(detected.box, tracks)
+                            result = previous_track.result if previous_track else {}
+                            next_tracks.append(_FaceTrack(detected, result))
                             continue
 
                         query_embedding = generate_query_embedding(detected.face_tensor)
@@ -190,14 +275,42 @@ def run(
                             gallery_metadata,
                             threshold,
                         )
+                        person_id = associate_face_to_person(
+                            detected.box, person_tracks
+                        )
+                        if person_id is not None and result.get("status") == "VERIFIED":
+                            for person_track in person_tracks:
+                                if person_track.track_id == person_id:
+                                    person_track.identity = result
+                                    break
                         _draw_result(frame, detected, result)
-                        cached_detected.append((detected, result))
+                        next_tracks.append(_FaceTrack(detected, result))
+                tracks = next_tracks
+                for person_track in person_tracks:
+                    if person_track.visible:
+                        _draw_person_track(frame, person_track)
             else:
-                cached_detected = _track_cached_faces(
-                    previous_frame, frame, cached_detected
-                )
-                for detected, result in cached_detected:
-                    _draw_result(frame, detected, result)
+                next_tracks = []
+                for track in tracks:
+                    if track.visible:
+                        updated = _track_cached_faces(
+                            previous_frame, frame, [(track.detected, track.result)]
+                        )
+                        if updated:
+                            track.detected, track.result = updated[0]
+                            track.missed_frames = 0
+                            _draw_result(frame, track.detected, track.result)
+                        else:
+                            track.missed_frames += 1
+                            track.visible = False
+                    else:
+                        track.missed_frames += 1
+                    if track.missed_frames <= config.TRACK_GRACE_FRAMES:
+                        next_tracks.append(track)
+                tracks = next_tracks
+                for person_track in person_tracks:
+                    if person_track.visible:
+                        _draw_person_track(frame, person_track)
 
             frame_counter += 1
             previous_frame = frame.copy()

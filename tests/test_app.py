@@ -79,6 +79,7 @@ def test_camera_successfully_releases_resources_and_displays_unknown(monkeypatch
         "status": "UNKNOWN",
     }
     monkeypatch.setattr(main, "cv2", fake_cv2)
+    monkeypatch.setattr(main, "detect_people", lambda *args: [])
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
     monkeypatch.setattr(main, "detect_faces", lambda current_frame: [detected])
@@ -125,6 +126,7 @@ def test_camera_supports_multiple_independent_faces(monkeypatch):
         return unknown_result
 
     monkeypatch.setattr(main, "cv2", fake_cv2)
+    monkeypatch.setattr(main, "detect_people", lambda *args: [])
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
     monkeypatch.setattr(main, "detect_faces", lambda current_frame: [detected1, detected2, detected3])
@@ -139,11 +141,35 @@ def test_camera_supports_multiple_independent_faces(monkeypatch):
     assert any("Skipped: FACE_TOO_SMALL" in label for label in fake_cv2.labels)
 
 
+def test_camera_does_not_render_identity_after_track_is_lost(monkeypatch):
+    frames = [np.zeros((40, 40, 3), dtype=np.uint8) for _ in range(2)]
+    capture = FakeCapture(frames=frames)
+    fake_cv2 = FakeCV2(capture)
+    fake_cv2.waitKey = lambda delay: 0 if len(capture.frames) else ord("q")
+    detected = DetectedFace(np.array([1, 1, 20, 20]), object())
+    verified = {"student_id": "100", "name": "Alice", "score": 0.9, "status": "VERIFIED"}
+
+    monkeypatch.setattr(main, "cv2", fake_cv2)
+    monkeypatch.setattr(main, "detect_people", lambda *args: [])
+    monkeypatch.setattr(main.config, "DETECTION_CYCLE_FRAMES", 2)
+    monkeypatch.setattr(main, "initialize_models", lambda: None)
+    monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
+    monkeypatch.setattr(main, "detect_faces", lambda frame: [detected])
+    monkeypatch.setattr(main, "generate_query_embedding", lambda tensor: np.ones(512))
+    monkeypatch.setattr(main, "recognize_face", lambda *args: verified)
+    monkeypatch.setattr(main, "_track_cached_faces", lambda *args: [])
+
+    main.run()
+
+    assert sum("Alice" in label for label in fake_cv2.labels) == 1
+
+
 def test_camera_releases_resources_on_processing_error(monkeypatch):
     frame = np.zeros((40, 40, 3), dtype=np.uint8)
     capture = FakeCapture(frames=[frame])
     fake_cv2 = FakeCV2(capture)
     monkeypatch.setattr(main, "cv2", fake_cv2)
+    monkeypatch.setattr(main, "detect_people", lambda *args: [])
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
     monkeypatch.setattr(main, "detect_faces", lambda frame: (_ for _ in ()).throw(RuntimeError("boom")))
@@ -234,3 +260,15 @@ def test_invalid_cached_box_is_dropped_without_blocking_tracking(monkeypatch):
 
     assert len(tracked) == 1
     np.testing.assert_allclose(tracked[0][0].box, valid.box)
+
+
+def test_error_detection_reassociates_with_recent_track():
+    result = {"student_id": "100", "name": "Alice", "status": "VERIFIED", "score": 0.9}
+    track = main._FaceTrack(
+        DetectedFace(np.array([10, 10, 30, 30], dtype=np.float32), object()), result
+    )
+
+    matched = main._find_matching_track(np.array([12, 11, 31, 31]), [track])
+
+    assert matched is track
+    assert matched.result is result

@@ -12,6 +12,8 @@ WINDOW_NAME = os.getenv("ATTENDANCE_WINDOW_NAME", "AI Video Attendance")
 # A value of 3 means detection runs once every 3 frames, reusing the prior
 # recognition results for the intermediate frames. Increase on slow (CPU) systems.
 DETECTION_CYCLE_FRAMES = int(os.getenv("DETECTION_CYCLE_FRAMES", "3"))
+TRACK_GRACE_FRAMES = 2
+PERSON_DETECTION_MIN_CONFIDENCE = float(os.getenv("PERSON_DETECTION_MIN_CONFIDENCE", "0.5"))
 
 
 def validate_detection_cycle_frames(value: int | None = None) -> int:
