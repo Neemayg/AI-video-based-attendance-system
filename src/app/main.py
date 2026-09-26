@@ -6,7 +6,7 @@ import numpy as np
 from src.detection.detector import DetectedFace, detect_faces, initialize_detector
 from src.recognition.gallery import load_recognition_gallery
 from src.recognition.matcher import recognize_face
-from src.recognition.query import generate_query_embedding
+from src.registration.embedding import generate_embeddings
 
 from . import config
 
@@ -93,13 +93,20 @@ def run(
                         2,
                     )
                 else:
+                    valid_faces = [d for d in detected_list if d.error_status is None]
+                    if valid_faces:
+                        batch_embeddings = generate_embeddings([d.face_tensor for d in valid_faces])
+                    
+                    valid_face_idx = 0
                     for detected in detected_list:
                         if detected.error_status is not None:
                             _draw_result(frame, detected, {})
                             cached_detected.append((detected, {}))
                             continue
 
-                        query_embedding = generate_query_embedding(detected.face_tensor)
+                        query_embedding = batch_embeddings[valid_face_idx]
+                        valid_face_idx += 1
+                        
                         result = recognize_face(
                             query_embedding,
                             gallery_embeddings,

@@ -82,7 +82,7 @@ def test_camera_successfully_releases_resources_and_displays_unknown(monkeypatch
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
     monkeypatch.setattr(main, "detect_faces", lambda current_frame: [detected])
-    monkeypatch.setattr(main, "generate_query_embedding", lambda tensor: np.ones(512))
+    monkeypatch.setattr(main, "generate_embeddings", lambda tensors: np.ones((len(tensors), 512)))
     monkeypatch.setattr(main, "recognize_face", lambda *args: unknown)
 
     main.run()
@@ -128,7 +128,7 @@ def test_camera_supports_multiple_independent_faces(monkeypatch):
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
     monkeypatch.setattr(main, "detect_faces", lambda current_frame: [detected1, detected2, detected3])
-    monkeypatch.setattr(main, "generate_query_embedding", lambda tensor: tensor)
+    monkeypatch.setattr(main, "generate_embeddings", lambda tensors: tensors)
     monkeypatch.setattr(main, "recognize_face", fake_recognize_face)
 
     main.run()

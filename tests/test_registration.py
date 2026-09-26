@@ -158,3 +158,41 @@ def test_angle_prompts_contain_multiple_distinct_angles():
 def test_sample_target_constant():
     """Verify the default sample target is 10."""
     assert config.SAMPLE_TARGET == 10
+
+@patch('src.registration.preprocessing.get_mtcnn')
+def test_reject_poor_quality_faces(mock_get_mtcnn):
+    """Test that preprocessing rejects multiple faces and no faces."""
+    from src.registration import preprocessing
+    mock_mtcnn = MagicMock()
+    mock_get_mtcnn.return_value = mock_mtcnn
+    
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    
+    # 1. Reject multiple faces
+    mock_mtcnn.detect.return_value = (
+        np.array([[0, 0, 10, 10], [20, 20, 30, 30]]),
+        np.array([0.99, 0.99]),
+        np.array([[[0,0],[0,0],[0,0],[0,0],[0,0]], [[0,0],[0,0],[0,0],[0,0],[0,0]]])
+    )
+    assert preprocessing.preprocess_face(frame) is None
+    
+    # 2. Reject no face
+    mock_mtcnn.detect.return_value = (None, None, None)
+    assert preprocessing.preprocess_face(frame) is None
+
+@patch('cv2.VideoCapture')
+@patch('cv2.waitKey')
+def test_registration_cancellation(mock_waitkey, mock_videocapture):
+    """Test that registration is cancelled early if the user presses Q."""
+    from src.registration.capture import capture_face_samples
+    
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = True
+    mock_cap.read.return_value = (True, np.zeros((160, 160, 3), dtype=np.uint8))
+    mock_videocapture.return_value = mock_cap
+    
+    # Press 'q' immediately
+    mock_waitkey.return_value = ord('q')
+    
+    tensors = capture_face_samples(num_samples=10)
+    assert len(tensors) == 0
