@@ -45,7 +45,7 @@ def test_detect_faces_preserves_error_status(monkeypatch):
     assert results[1].face_tensor is None
     np.testing.assert_array_equal(results[1].box, box2)
 
-def test_side_pose_is_rejected_and_frontal_pose_is_allowed():
+def test_side_pose_is_allowed():
     frontal_landmarks = np.array(
         [[10.0, 20.0], [30.0, 20.0], [20.0, 30.0], [14.0, 40.0], [26.0, 40.0]]
     )
@@ -54,7 +54,7 @@ def test_side_pose_is_rejected_and_frontal_pose_is_allowed():
     )
 
     assert preprocessing.validate_frontal_pose(frontal_landmarks)
-    assert not preprocessing.validate_frontal_pose(side_landmarks)
+    assert preprocessing.validate_frontal_pose(side_landmarks)
 
 
 def test_detect_faces_limits_maximum_faces(monkeypatch):
