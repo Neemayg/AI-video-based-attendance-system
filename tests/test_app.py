@@ -3,6 +3,7 @@ import pytest
 
 from src.app import main
 from src.detection.detector import DetectedFace
+from src.detection.person_detector import PersonDetection
 
 
 class FakeCapture:
@@ -81,6 +82,8 @@ def test_camera_successfully_releases_resources_and_displays_unknown(monkeypatch
     monkeypatch.setattr(main, "cv2", fake_cv2)
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
+    person_box = PersonDetection(np.array([0, 0, 30, 30]), 0.9)
+    monkeypatch.setattr(main, "detect_persons", lambda frame: [person_box])
     monkeypatch.setattr(main, "detect_faces", lambda current_frame: [detected])
     monkeypatch.setattr(main, "generate_embeddings", lambda tensors: np.ones((len(tensors), 512)))
     monkeypatch.setattr(main, "recognize_face", lambda *args: unknown)
@@ -127,6 +130,12 @@ def test_camera_supports_multiple_independent_faces(monkeypatch):
     monkeypatch.setattr(main, "cv2", fake_cv2)
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
+    
+    person1 = PersonDetection(np.array([0, 0, 30, 30]), 0.9)
+    person2 = PersonDetection(np.array([25, 25, 55, 55]), 0.9)
+    person3 = PersonDetection(np.array([50, 50, 70, 70]), 0.9)
+    monkeypatch.setattr(main, "detect_persons", lambda frame: [person1, person2, person3])
+    
     monkeypatch.setattr(main, "detect_faces", lambda current_frame: [detected1, detected2, detected3])
     monkeypatch.setattr(main, "generate_embeddings", lambda tensors: tensors)
     monkeypatch.setattr(main, "recognize_face", fake_recognize_face)
@@ -146,6 +155,7 @@ def test_camera_releases_resources_on_processing_error(monkeypatch):
     monkeypatch.setattr(main, "cv2", fake_cv2)
     monkeypatch.setattr(main, "initialize_models", lambda: None)
     monkeypatch.setattr(main, "load_recognition_gallery", lambda: ({}, {}))
+    monkeypatch.setattr(main, "detect_persons", lambda frame: [])
     monkeypatch.setattr(main, "detect_faces", lambda frame: (_ for _ in ()).throw(RuntimeError("boom")))
 
     with pytest.raises(RuntimeError, match="boom"):

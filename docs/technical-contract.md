@@ -1,6 +1,6 @@
 # Technical Contract & Integration Specifications
 
-This document defines the shared technical contract, data structures, and computer vision stack for **Phase 1 (Registration)**, **Phase 2 (Recognition)**, and **Phase 3 (Camera Integration)**.
+This document defines the shared technical contract, data structures, and computer vision stack across **Phase 1-4 (Vision)** and **Phase 5-7 (Attendance Domain Layer)**.
 
 ---
 
@@ -97,7 +97,22 @@ For unknown individuals:
 
 ---
 
-## 5. Team Ownership Matrix
+## 5. Attendance Domain Contract (`src/attendance/`)
+
+The attendance engine is strictly partitioned into two logical layers: **Presence** and **Policy**.
+
+### A. Presence Session Engine (`src/attendance/presence.py`)
+Responsible for grouping timestamped face and body tracking observations into logical blocks of time. It issues `EntryEvent` and `ExitEvent` objects containing fully assembled `PresenceSession`s representing the exact duration a student was physically inside the camera's monitored zone.
+
+### B. Attendance Policy Engine (`src/attendance/policy.py`)
+A pure mathematical domain layer. It takes a closed `PresenceSession` and evaluates it against a `ScheduledPeriod` (from a `Timetable`).
+- **Overlap Logic:** Sessions are clipped to the exact bounds of the scheduled period. Multiple sessions in the same period are mathematically merged to prevent double-counting of overlap.
+- **Late Threshold:** Assessed solely against the student's *first* entry time relative to the period start.
+- **Output:** Produces an `AttendanceRecord` with a deterministic status (`PRESENT`, `PARTIAL`, `ABSENT`, `LATE`) and an explainable english reason string.
+
+---
+
+## 6. Team Ownership Matrix
 
 | Developer | Branch | Module Owned | Responsibilities | Does NOT Own |
 |---|---|---|---|---|

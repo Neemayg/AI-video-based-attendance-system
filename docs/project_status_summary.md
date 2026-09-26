@@ -26,16 +26,30 @@ The real-time camera inference loop has been established (`src/app/main.py`).
 - **Performance Caching:** Only runs heavy detection every `N` frames (configurable detection cycle). In between, it reuses the last known positions to maintain high FPS.
 - **Hardware Acceleration:** Smart device selector automatically uses Nvidia GPUs (`cuda`) on Windows, Apple Silicon (`mps`) on MacBooks, and gracefully falls back to `cpu`.
 
-## 🟢 Phase 4: Multi-Person Detection & Tracking (COMPLETED - Detection Level)
+## 🟢 Phase 4: Multi-Person Detection & Tracking (COMPLETED)
 The camera is now capable of identifying an entire crowd of students at once.
 - **Multi-Face Detection:** MTCNN detects all faces within the camera frame simultaneously.
-- **Batch Inference Pipeline:** Recently refactored the embedding pipeline so that multiple faces are processed through the ResNet deep learning model in a single batched pass. This dramatically prevents frame rate drops when scanning crowds.
+- **Batch Inference Pipeline:** Refactored the embedding pipeline so that multiple faces are processed through the ResNet deep learning model in a single batched pass.
 - **Independent Quality Checks:** If one person is blurry but another is clear, the system skips the blurry face (draws an orange warning box) but still recognizes the clear face.
+
+## 🟢 Phase 5, 6 & 6.5: Identity Continuity & Presence Engine (COMPLETED)
+The system now tracks persistent student presence over time, gracefully handling temporary occlusions.
+- **Body Tracking Continuity:** Integrated `ssdlite320_mobilenet_v3_large` person detection and centroid tracking. The system associates face recognition IDs with tracked body boxes via spatial overlap.
+- **Occlusion Resistance:** If a student turns their face away, they are no longer instantly marked as "Exited". The system relies on their continuous body track.
+- **Presence Session Engine:** Consumes observations and groups them into logical `PresenceSession` objects. Calculates total duration inside the classroom.
+- **Entry & Exit Events:** Emits explicit start and end events for when a student enters or leaves the monitored area.
+
+## 🟢 Phase 7A: Period Matching & Policy Engine (COMPLETED)
+The raw presence durations are now mapped against school schedules to produce explainable attendance outcomes.
+- **Pure Domain Policy Layer:** `AttendancePolicyEngine` is mathematically isolated and evaluated against a `Timetable`.
+- **Intelligent Overlap Algorithm:** Safely merges fragmented overlapping sessions for a single student during a period without double-counting presence seconds.
+- **Deterministic Outcomes:** Calculates exact qualifying presence seconds, issuing `PRESENT`, `PARTIAL`, `ABSENT`, or `LATE` (evaluated strictly on first entry time, independent of duration).
+- **Explainable Records:** Outputs `AttendanceRecord`s which contain `status`, an exact `reason` string, and linked `source_session_ids` for auditability.
+- **Live Terminal Integration:** When a student walks away from the camera, the system automatically evaluates their `PresenceSession` against the current period and prints their final Attendance Record immediately.
 
 ---
 
 ## 🟡 What's Next (Pending Phases)
-The core AI face recognition engine is officially complete. The upcoming work revolves around the logic of taking attendance.
-- **Phase 5 & 6 (Presence & Entry/Exit):** Logic to determine how long a student stayed in the frame.
-- **Phase 7 (Period-Level Attendance):** Connecting the presence duration to an actual school timetable (Marking Present/Absent/Late).
-- **Phase 9 (Dashboard):** Building a web interface to view the attendance reports instead of using the terminal.
+- **Phase 7B (Data Persistence):** Introducing a database (e.g., PostgreSQL/SQLite) to securely persist `PresenceSession` and `AttendanceRecord` objects.
+- **Phase 8 (API readiness):** Creating REST or GraphQL endpoints for external querying of attendance data.
+- **Phase 9 (Dashboard):** Building a web interface to view reports, current classes, and historical attendance trends instead of relying on the terminal.
