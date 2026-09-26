@@ -153,3 +153,84 @@ def test_camera_releases_resources_on_processing_error(monkeypatch):
 
     assert capture.released
     assert fake_cv2.destroyed
+
+
+def test_camera_releases_resources_on_empty_frame(monkeypatch):
+    capture = FakeCapture(frames=[None])
+    fake_cv2 = FakeCV2(capture)
+    monkeypatch.setattr(main, "cv2", fake_cv2)
+    monkeypatch.setattr(main, "initialize_models", lambda: None)
+
+    with pytest.raises(RuntimeError, match="Could not read a frame"):
+        main.run()
+
+    assert capture.released
+    assert fake_cv2.destroyed
+
+
+def test_invalid_detection_cycle_is_rejected_before_camera_open(monkeypatch):
+    monkeypatch.setattr(main.config, "DETECTION_CYCLE_FRAMES", 0)
+
+    with pytest.raises(ValueError, match="positive integer"):
+        main.run()
+
+
+def test_cached_face_box_follows_optical_flow(monkeypatch):
+    previous = np.zeros((40, 40, 3), dtype=np.uint8)
+    current = np.zeros((40, 40, 3), dtype=np.uint8)
+    detected = DetectedFace(np.array([5, 6, 15, 16], dtype=np.float32), object())
+    result = {"status": "UNKNOWN"}
+
+    monkeypatch.setattr(main.cv2, "cvtColor", lambda frame, code: frame[..., 0])
+    monkeypatch.setattr(main.cv2, "COLOR_BGR2GRAY", 0, raising=False)
+
+    def fake_flow(previous_gray, current_gray, points, *_args, **_kwargs):
+        return (
+            points + np.array([[[2.0, 3.0]]], dtype=np.float32),
+            np.ones((4, 1), dtype=np.uint8),
+            None,
+        )
+
+    monkeypatch.setattr(main.cv2, "calcOpticalFlowPyrLK", fake_flow)
+    tracked = main._track_cached_faces(previous, current, [(detected, result)])
+
+    np.testing.assert_allclose(tracked[0][0].box, [7, 9, 17, 19])
+    assert tracked[0][1] is result
+
+
+def test_cached_face_is_dropped_when_optical_flow_is_lost(monkeypatch):
+    frame = np.zeros((40, 40, 3), dtype=np.uint8)
+    detected = DetectedFace(np.array([5, 6, 15, 16], dtype=np.float32), object())
+
+    monkeypatch.setattr(main.cv2, "cvtColor", lambda frame, code: frame[..., 0])
+    monkeypatch.setattr(main.cv2, "COLOR_BGR2GRAY", 0, raising=False)
+    monkeypatch.setattr(
+        main.cv2,
+        "calcOpticalFlowPyrLK",
+        lambda *args, **kwargs: (None, None, None),
+    )
+
+    assert main._track_cached_faces(frame, frame, [(detected, {})]) == []
+
+
+def test_invalid_cached_box_is_dropped_without_blocking_tracking(monkeypatch):
+    frame = np.zeros((40, 40, 3), dtype=np.uint8)
+    invalid = DetectedFace(np.array([np.nan, 6, 15, 16]), object())
+    valid = DetectedFace(np.array([5, 6, 15, 16], dtype=np.float32), object())
+
+    monkeypatch.setattr(main.cv2, "cvtColor", lambda frame, code: frame[..., 0])
+    monkeypatch.setattr(main.cv2, "COLOR_BGR2GRAY", 0, raising=False)
+    monkeypatch.setattr(
+        main.cv2,
+        "calcOpticalFlowPyrLK",
+        lambda previous, current, points, *_args, **_kwargs: (
+            points,
+            np.ones((4, 1), dtype=np.uint8),
+            None,
+        ),
+    )
+
+    tracked = main._track_cached_faces(frame, frame, [(invalid, {}), (valid, {})])
+
+    assert len(tracked) == 1
+    np.testing.assert_allclose(tracked[0][0].box, valid.box)
